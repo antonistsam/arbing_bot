@@ -7,12 +7,11 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
 from dotenv import load_dotenv
 
 load_dotenv()
 
-def handle_betburger():
+def open_drivers_and_read_arbs():
     # Load environment variables
     email = os.getenv('BETBURGER_EMAIL')
     password = os.getenv('BETBURGER_PASSWORD')
@@ -20,8 +19,12 @@ def handle_betburger():
     # Setup Chrome options
     chrome_options = Options()
 
-    
+    # Initialize the main Chrome driver
     driver = webdriver.Chrome(options=chrome_options)
+
+    # # Initialize the secondary Chrome drivers
+    # stoiximan_driver = webdriver.Chrome(options=chrome_options)
+    # stoiximan_driver = webdriver.Chrome(options=chrome_options)
 
     try:
         # Go to BetBurger login page
@@ -44,35 +47,69 @@ def handle_betburger():
         submit_button.click()
 
         # Wait until the page loads and displays the elements
-        time.sleep(2)  # This can be replaced with more sophisticated waits if needed
+        time.sleep(2)
 
         # Navigate to the arbs page
         driver.get('https://www.betburger.com/arbs')
 
-        time.sleep(2)
+        time.sleep(15)
+
+        # Open the stoiximan and Stoiximan pages in their respective drivers
+        # stoiximan_driver.get('https://www.stoiximan.gr/stoixima')
+        # stoiximan_driver.get('https://www.stoiximan.gr/')
 
         # Scrape the HTML and read all <li> elements with class 'wrapper arb has-2-bets'
         arb_elements = driver.find_elements(By.CSS_SELECTOR, "li.wrapper.arb.has-2-bets")
         for element in arb_elements:
-            handle_arb_element(element)  # Call the function to handle each element
-
-    finally:
-        driver.quit()
-
-def handle_arb_element(element):
-    try:
-        # Get the span element with class 'copy-input'
-        copy_input_span = element.find_element(By.CSS_SELECTOR, "span.copy-input")
-
-        # Get the next element inside the li element and its text
-        next_element = copy_input_span.find_element(By.XPATH, "following-sibling::*[1]")
-        next_element_text = next_element.text
-       
-        print(f"Next Element Text: {next_element_text}")
-
+            handle_arb_element(element)
 
     except Exception as e:
         print(f"An error occurred: {e}")
 
+    # Note: Do not quit the main driver as per the requirement
+
+def handle_arb_element(element):
+    try:
+        # Find the stoiximan div element within the arb element
+        bet_wrappers = element.find_elements(By.CSS_SELECTOR, "div.bet-wrapper")
+        for bet_wrapper in bet_wrappers:
+            try:
+                stoiximan_div = bet_wrapper.find_element(By.XPATH, ".//div[@title='Stoiximan']")
+                handle_stoiximan_element(bet_wrapper)
+                break
+            except Exception as e:
+                # Ignore if stoiximan element is not found in this bet-wrapper
+                continue
+    except Exception as e:
+        print(f"An error occurred while handling arb element: {e}")
+
+def handle_stoiximan_element(stoiximan_element):
+    try:
+        # Get the event name
+        copy_input_span = stoiximan_element.find_element(By.CSS_SELECTOR, "span.copy-input")
+        
+
+        # Get the next element inside the li element and its text
+        event_name_element = copy_input_span.find_element(By.XPATH, "following-sibling::*[1]")
+        event_name = event_name_element.text
+
+        # Get the market information
+        market_div = stoiximan_element.find_element(By.CSS_SELECTOR, "div.market.all-center")
+        last_span = market_div.find_elements(By.CSS_SELECTOR, "span")[-1]
+        market_text = last_span.text
+        market_text_cleaned = market_text.split('(')[0]  # Exclude the parentheses part
+
+        # Get the odds
+        odds_span = stoiximan_element.find_element(By.CSS_SELECTOR, "span.coefficient")
+        odds_text = odds_span.text
+
+        # Print the extracted data
+        print(f"Event Name: {event_name}")
+        print(f"Market: {market_text_cleaned}")
+        print(f"Odds: {odds_text}")
+
+    except Exception as e:
+        print(f"An error occurred while handling stoiximan element: {e}")
+
 if __name__ == "__main__":
-    handle_betburger()
+    open_drivers_and_read_arbs()

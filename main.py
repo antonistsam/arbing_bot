@@ -1,4 +1,4 @@
-from betburger import handle_betburger
+from betburger import open_drivers_and_read_arbs
 
 if __name__ == "__main__":
-    handle_betburger()
+    open_drivers_and_read_arbs()
