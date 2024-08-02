@@ -18,10 +18,10 @@ def open_drivers_and_read_arbs():
 
     # Setup Chrome options
     chrome_options = Options()
+    chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
 
     # Initialize the main Chrome driver
     driver = webdriver.Chrome(options=chrome_options)
-    stoiximan_driver = webdriver.Chrome(options=chrome_options)
 
     try:
         # Go to BetBurger login page
@@ -62,7 +62,7 @@ def open_drivers_and_read_arbs():
                 period_name_span = element.find_element(By.CSS_SELECTOR, "span.period-name")
                 period_spans = period_name_span.find_elements(By.CSS_SELECTOR, "span")
                 half_period = period_spans[-1].text if period_spans and period_spans[-1].text.strip() else "null"
-                handle_arb_element(element, half_period, stoiximan_driver)
+                handle_arb_element(element, half_period, driver)
             # Wait for 15 seconds before refreshing
             time.sleep(15)
 
@@ -71,14 +71,14 @@ def open_drivers_and_read_arbs():
 
     # Note: Do not quit the main driver as per the requirement
 
-def handle_arb_element(element, half_period, stoiximan_driver):
+def handle_arb_element(element, half_period, driver):
     try:
         # Find the Stoiximan div element within the arb element
         bet_wrappers = element.find_elements(By.CSS_SELECTOR, "div.bet-wrapper")
         for bet_wrapper in bet_wrappers:
             try:
                 stoiximan_div = bet_wrapper.find_element(By.XPATH, ".//div[@title='Stoiximan']")
-                handle_stoiximan_element(bet_wrapper, half_period, stoiximan_driver)
+                handle_stoiximan_element(bet_wrapper, half_period, driver)
                 break
             except Exception as e:
                 # Ignore if Stoiximan element is not found in this bet-wrapper
@@ -86,7 +86,7 @@ def handle_arb_element(element, half_period, stoiximan_driver):
     except Exception as e:
         print(f"An error occurred while handling arb element: {e}")
 
-def handle_stoiximan_element(stoiximan_element, half_period, stoiximan_driver):
+def handle_stoiximan_element(stoiximan_element, half_period, driver):
     try:
         # Get the event name
         copy_input_span = stoiximan_element.find_element(By.CSS_SELECTOR, "span.copy-input")
@@ -99,7 +99,9 @@ def handle_stoiximan_element(stoiximan_element, half_period, stoiximan_driver):
         market_div = stoiximan_element.find_element(By.CSS_SELECTOR, "div.market.all-center")
         last_span = market_div.find_elements(By.CSS_SELECTOR, "span")[-1]
         market_text = last_span.text
-        market_text_cleaned = market_text.split('(')[0]  # Exclude the parentheses part
+        
+        # Enhanced parsing
+        market_text_cleaned = market_text.split('(')[0].strip() + " - " + market_text.split(')')[-1].strip() if '(' in market_text and ')' in market_text else market_text.strip()
         line = market_text.split('(')[1].split(')')[0] if '(' in market_text and ')' in market_text else ""
         
         # Get the odds
@@ -111,13 +113,16 @@ def handle_stoiximan_element(stoiximan_element, half_period, stoiximan_driver):
         print(f"Market: {market_text_cleaned}")
         print(f"Odds: {odds_text}")
         print(f"Half Period: {half_period}")
+        print(f"Line: {line}")
 
         # Perform actions on Stoiximan
         bookmaker = 'stoiximan'
-        perform_stoiximan_actions(stoiximan_driver, event_name, market_text_cleaned, line, half_period, bookmaker)
+        time.sleep(1)
+        perform_stoiximan_actions(driver, event_name, market_text_cleaned, line, half_period, bookmaker)
 
     except Exception as e:
         print(f"An error occurred while handling Stoiximan element: {e}")
+
 
 def perform_stoiximan_actions(driver, event_name, market_text_cleaned, line, half_period, bookmaker):
     try:
@@ -125,19 +130,27 @@ def perform_stoiximan_actions(driver, event_name, market_text_cleaned, line, hal
         driver.get('https://en.stoiximan.gr/')
 
         # Wait for the page to load
-        time.sleep(3)
+        time.sleep(5)
 
-        # Click on the search icon
-        search_icon = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "svg[data-qa='header-icons-search-icon']"))
-        )
-        search_icon.click()
+        # Click the close icon if it exists
+        try:
+            div_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'tw-flex tw-gap-n tw-relative')]"))
+            )
 
-        # Paste the event name in the search input
-        search_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[data-qa='search-input']"))
-        )
-        search_input.send_keys(event_name)
+            # Find all SVG elements within this div
+            svg_elements = div_element.find_elements(By.TAG_NAME, 'svg')
+
+            # Check if there are at least two SVG elements
+            if len(svg_elements) >= 2:
+                # Click on the second SVG element
+                svg_elements[1].click()
+
+                # Wait for a short period
+                time.sleep(1)
+                driver.execute_script(f"document.activeElement.value += '{event_name}';")
+        except Exception as e:
+            print(f"Error occurred: {e}")
 
         # Wait for the search results to appear and click on the first result
         first_result = WebDriverWait(driver, 10).until(
@@ -152,30 +165,62 @@ def perform_stoiximan_actions(driver, event_name, market_text_cleaned, line, hal
         last_div[-1].click()
 
         # Map and interact with the specific odds
-        map_and_place_bet(driver, market_text_cleaned, line, half_period)
+        time.sleep(1)
+        map_and_place_stoiximan_bet(driver, market_text_cleaned, line, half_period)
 
     except Exception as e:
         print(f"An error occurred while performing actions on Stoiximan: {e}")
 
-def map_and_place_bet(driver, market_text_cleaned, line, half_period):
+def map_and_place_stoiximan_bet(driver, market_text_cleaned, odds, line, half_period):
     try:
-        # Example: If Market is TU and Line is an even number, then search and click the corresponding element
-        if market_text_cleaned == "TU" and line.isdigit() and int(line) % 2 == 0:
+        # Click on the last div with the specific class
+        last_div = WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "div.tw-py-n.tw-px-[12px].tw-leading-s.tw-text-[12px].tw-rounded-m.tw-font-medium"))
+        )
+        last_div[-1].click()
+
+        mapping_dict = {
+            ('AH1', '+0.5', None): 'Asian Handicap (Current Score 0 - 0)', 
+            ('AH1', '-0.5', None): 'Asian Handicap (Current Score 0 - 0)',
+            # Add more mappings as required
+        }
+
+        market_type = 'even' if line.isdigit() and int(line) % 2 == 0 in market_text_cleaned else 'odd' if 'O' in market_text_cleaned else None
+        key = (market_text_cleaned.split(' ')[0], market_type)
+
+        if key in mapping_dict:
+            mapped_value = mapping_dict[key]
+
+            # Search for the lines_tab
             lines_tab = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, ".tw-text-s.tw-leading-s.tw-tracking-s.tw-flex-1.tw-flex.tw-flex-row.tw-justify-start.tw-items-start.tw-min-h-[20px].tw-text-n-13-steel.dark:tw-text-n-silver-mist"))
             )
             lines_tab.click()
 
-            even_or_odd_columns = lines_tab.find_elements(By.CSS_SELECTOR, ".selections__selection.selection-horizontal-button.tw-flex.tw-flex-row.tw-items-center.tw-justify-center.tw-h-[36px].tw-flex-1.tw-cursor-pointer.tw-py-[10px].tw-px-n.tw-rounded-s.tw-border-n.tw-border-solid.dark:tw-bg-n-22-licorice.dark:tw-border-n-28-cloud-burst.tw-bg-n-97-porcelain.tw-border-n-90-dark-snow.dark:tw-text-white-snow.tw-text-n-13-steel.tw-relative.tw-overflow-hidden.tw-outline-none.tw-select-none.tw-break-words.tw-text-center.selections__selection--columns-2.hover:tw-bg-n-94-dirty-snow.hover:tw-border-n-silver-mist.dark:hover:tw-border-n-36-east-bay.dark:hover:tw-bg-n-28-cloud-burst")
-            
-            for column in even_or_odd_columns:
-                odds_element = column.find_element(By.CSS_SELECTOR, ".tw-text-s.tw-leading-s.tw-font-bold.tw-text-tertiary.dark:tw-text-quartary")
-                if odds_element:
-                    odds_element.click()
+            # Find the correct column based on mapping
+            columns = lines_tab.find_elements(By.CSS_SELECTOR, ".selections__selection.selection-horizontal-button.tw-flex.tw-flex-row.tw-items-center.tw-justify-center.tw-h-[36px].tw-flex-1.tw-cursor-pointer.tw-py-[10px].tw-px-n.tw-rounded-s.tw-border-n.tw-border-solid.dark:tw-bg-n-22-licorice.dark:tw-border-n-28-cloud-burst.tw-bg-n-97-porcelain.tw-border-n-90-dark-snow.dark:tw-text-white-snow.tw-text-n-13-steel.tw-relative.tw-overflow-hidden.tw-outline-none.tw-select-none.tw-break-words.tw-text-center.selections__selection--columns-2.hover:tw-bg-n-94-dirty-snow.hover:tw-border-n-silver-mist.dark:hover:tw-border-n-36-east-bay.dark:hover:tw-bg-n-28-cloud-burst")
+
+            for column in columns:
+                if mapped_value in column.text:
+                    column.click()
                     break
+
+            # Find the correct odd element based on market type
+            for column in columns:
+                if market_type == 'even' and 'U' in column.text:
+                    odds_element = column.find_element(By.CSS_SELECTOR, ".tw-text-s.tw-leading-s.tw-font-bold.tw-text-tertiary.dark:tw-text-quartary")
+                    if odds_element:
+                        odds_element.click()
+                        break
+                elif market_type == 'odd' and 'O' in column.text:
+                    odds_element = column.find_element(By.CSS_SELECTOR, ".tw-text-s.tw-leading-s.tw-font-bold.tw-text-tertiary.dark:tw-text-quartary")
+                    if odds_element:
+                        odds_element.click()
+                        break
 
     except Exception as e:
         print(f"An error occurred while mapping and placing bet: {e}")
+
 
 if __name__ == "__main__":
     open_drivers_and_read_arbs()
